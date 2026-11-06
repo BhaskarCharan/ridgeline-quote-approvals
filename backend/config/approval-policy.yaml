@@ -1,0 +1,41 @@
+# Ridgeline quote approval policy (approval_rules.md), as data.
+#
+# Ops can change thresholds, add or reorder tiers here and restart (or, in
+# production, publish a new version through the config store) without a code
+# release. The file is validated on load; an invalid policy stops startup.
+#
+# Every quote is ALWAYS signed off by a quote specialist first. The tiers below
+# only decide who approves AFTER the specialist.
+
+version: "2026-10-12.1"
+
+# Evaluated top to bottom; the FIRST matching tier wins, so the strictest
+# tier goes first. The last tier must be `always: true` (the catch-all).
+# Metrics: effective_discount_pct (percent, 17.5 = 17.5%), net_total (USD).
+# Ops: gt, gte, lt, lte.
+tiers:
+  - name: vp_sales
+    approver_role: vp_sales
+    any:
+      - { metric: effective_discount_pct, op: gt, value: 25 }
+
+  - name: regional_manager
+    approver_role: regional_manager
+    match_customer_region: true
+    any:
+      - { metric: effective_discount_pct, op: gt, value: 15 }
+      - { metric: net_total, op: gte, value: 25000 }
+
+  - name: specialist_only
+    approver_role: null
+    always: true
+
+thresholds:
+  # Rule 8: lines below this extraction confidence need a specialist first.
+  min_confidence: 0.85
+  # Rule 10: stock readings older than this need confirming.
+  max_stock_age_hours: 24
+  # Rule 10: a reporting export older than this needs confirming.
+  max_export_age_hours: 36
+  # Rule 11: same rfq_id + same lines within this window is a duplicate.
+  duplicate_window_hours: 24
