@@ -5,16 +5,7 @@
     "net_total": 435.23,
     "effective_discount_pct": 8,
     "approver_id": null,
-    "specialist_review_flags": [
-      {
-        "line": null,
-        "reason": "stock unavailable after retries"
-      },
-      {
-        "line": null,
-        "reason": "reporting data is 66h old (exported 2026-10-11T07:00:00.000Z)"
-      }
-    ],
+    "specialist_review_flags": [],
     "duplicate_of": null
   },
   {
@@ -23,16 +14,7 @@
     "net_total": 132.46,
     "effective_discount_pct": 18,
     "approver_id": "U01",
-    "specialist_review_flags": [
-      {
-        "line": null,
-        "reason": "stock unavailable after retries"
-      },
-      {
-        "line": null,
-        "reason": "reporting data is 66h old (exported 2026-10-11T07:00:00.000Z)"
-      }
-    ],
+    "specialist_review_flags": [],
     "duplicate_of": null
   },
   {
@@ -43,12 +25,8 @@
     "approver_id": "U05",
     "specialist_review_flags": [
       {
-        "line": null,
-        "reason": "stock unavailable after retries"
-      },
-      {
-        "line": null,
-        "reason": "reporting data is 66h old (exported 2026-10-11T07:00:00.000Z)"
+        "line": 3,
+        "reason": "part not found in stock API"
       }
     ],
     "duplicate_of": null
@@ -61,12 +39,8 @@
     "approver_id": "U05",
     "specialist_review_flags": [
       {
-        "line": null,
-        "reason": "stock unavailable after retries"
-      },
-      {
-        "line": null,
-        "reason": "reporting data is 66h old (exported 2026-10-11T07:00:00.000Z)"
+        "line": 1,
+        "reason": "stale stock reading: 49.5h old (as of 2026-10-10T08:00:00-05:00)"
       }
     ],
     "duplicate_of": null
@@ -81,14 +55,6 @@
       {
         "line": 3,
         "reason": "extraction confidence 0.62"
-      },
-      {
-        "line": null,
-        "reason": "stock unavailable after retries"
-      },
-      {
-        "line": null,
-        "reason": "reporting data is 66h old (exported 2026-10-11T07:00:00.000Z)"
       }
     ],
     "duplicate_of": null
@@ -99,16 +65,7 @@
     "net_total": 47652,
     "effective_discount_pct": 5,
     "approver_id": "U04",
-    "specialist_review_flags": [
-      {
-        "line": null,
-        "reason": "stock unavailable after retries"
-      },
-      {
-        "line": null,
-        "reason": "reporting data is 66h old (exported 2026-10-11T07:00:00.000Z)"
-      }
-    ],
+    "specialist_review_flags": [],
     "duplicate_of": null
   },
   {
@@ -121,14 +78,6 @@
       {
         "line": 1,
         "reason": "contract price expired 2025-12-31; list price used"
-      },
-      {
-        "line": null,
-        "reason": "stock unavailable after retries"
-      },
-      {
-        "line": null,
-        "reason": "reporting data is 66h old (exported 2026-10-11T07:00:00.000Z)"
       }
     ],
     "duplicate_of": null
@@ -141,12 +90,8 @@
     "approver_id": null,
     "specialist_review_flags": [
       {
-        "line": null,
-        "reason": "stock unavailable after retries"
-      },
-      {
-        "line": null,
-        "reason": "reporting data is 66h old (exported 2026-10-11T07:00:00.000Z)"
+        "line": 1,
+        "reason": "out of stock in all warehouses"
       }
     ],
     "duplicate_of": null
@@ -163,12 +108,8 @@
         "reason": "extraction confidence 0.79"
       },
       {
-        "line": null,
-        "reason": "stock unavailable after retries"
-      },
-      {
-        "line": null,
-        "reason": "reporting data is 66h old (exported 2026-10-11T07:00:00.000Z)"
+        "line": 6,
+        "reason": "stale stock reading: 49.5h old (as of 2026-10-10T08:00:00-05:00)"
       }
     ],
     "duplicate_of": null
