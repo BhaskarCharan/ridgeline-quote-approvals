@@ -16,3 +16,6 @@ TASK.md
 # OS / editor noise
 .DS_Store
 *.log
+
+# Submission archive (built locally, not committed)
+*.zip
