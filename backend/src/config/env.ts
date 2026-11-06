@@ -32,6 +32,8 @@ const EnvSchema = z
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
     CORS_ORIGIN: z.string().default("http://localhost:4200"),
 
+    /** Quote/audit storage: "mongo" (default) or "memory" (tests, Mongo-less demos; lost on exit). */
+    PERSISTENCE: z.enum(["mongo", "memory"]).default("mongo"),
     MONGODB_URI: z.string().url().default("mongodb://127.0.0.1:27017"),
     MONGODB_DB: z.string().min(1).default("ridgeline_quotes"),
 

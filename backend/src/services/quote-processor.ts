@@ -1,13 +1,19 @@
-import { RoutingOutcome } from "../domain/enums.js";
-import type { DraftQuote, QuotePricing, ReviewFlag } from "../domain/models.js";
+import { AuditAction, QuoteStatus, RoutingOutcome } from "../domain/enums.js";
+import type { DraftQuote, Quote, QuoteLine, QuotePricing, ReviewFlag } from "../domain/models.js";
 import type { Clock } from "../ports/clock.js";
 import type { ReferenceData } from "../ports/reference-data.port.js";
+import type { QuoteRepository } from "../ports/repositories.port.js";
 import type { StockProvider, StockResult } from "../ports/stock.port.js";
+import type { AuditService } from "./audit.service.js";
 import type { DuplicateDetector } from "./duplicate-detector.js";
 import type { PricingService } from "./pricing.service.js";
 import type { ReviewCheck, ReviewContext } from "./review-checks/index.js";
 import type { ApproverResolution, ApproverResolver } from "./routing/approver-resolver.js";
 import type { RuleEngine } from "./routing/rule-engine.js";
+import { toRoutingResult } from "./routing-result.mapper.js";
+
+/** The actor recorded for automated pipeline steps. */
+export const SYSTEM_ACTOR = "system";
 
 /** Everything decided about one draft, with the evidence behind each decision. */
 export interface ProcessedDraft {
@@ -36,6 +42,18 @@ export interface QuoteProcessorDeps {
   duplicates: DuplicateDetector;
   referenceData: ReferenceData;
   clock: Clock;
+  quotes: QuoteRepository;
+  audit: AuditService;
+  /** Stored on each quote so a past routing can be explained after the policy changes. */
+  policyVersion: string;
+}
+
+/** Outcome of processing one draft. */
+export interface ProcessResult {
+  /** The stored quote (new, or the one already stored for this draftId). */
+  quote: Quote;
+  /** False when the draftId had already been processed: nothing was recomputed or written. */
+  created: boolean;
 }
 
 /**
@@ -51,19 +69,56 @@ export class QuoteProcessor {
   constructor(private readonly deps: QuoteProcessorDeps) {}
 
   /**
-   * Process drafts in order. Each draft is checked for duplicates against the
-   * drafts before it, so a resubmission later in the batch points at the original.
+   * Process drafts in order. Each one is saved before the next starts, so a
+   * resubmission later in the batch finds its original in the repository.
    */
-  async processBatch(drafts: readonly DraftQuote[]): Promise<ProcessedDraft[]> {
-    const results: ProcessedDraft[] = [];
-    for (const draft of drafts) {
-      results.push(await this.process(draft, results.map((r) => r.draft)));
-    }
+  async processBatch(drafts: readonly DraftQuote[]): Promise<ProcessResult[]> {
+    const results: ProcessResult[] = [];
+    for (const draft of drafts) results.push(await this.process(draft));
     return results;
   }
 
-  /** Process one draft. `earlier` are drafts already received (for rule 11). */
-  async process(draft: DraftQuote, earlier: readonly DraftQuote[]): Promise<ProcessedDraft> {
+  /**
+   * Process and persist one draft. Idempotent per draftId: a draft that was
+   * already processed is returned as stored, with no new stock call, no new
+   * approval request and no new audit entry. Re-sending a *changed* draft under
+   * the same id is also a no-op; changes go through an explicit edit instead.
+   */
+  async process(draft: DraftQuote): Promise<ProcessResult> {
+    const { quotes, audit } = this.deps;
+
+    const existing = await quotes.findById(draft.draft_id);
+    if (existing) return { quote: existing, created: false };
+
+    // Duplicates are found among *stored* quotes, so they are caught across
+    // CLI runs and API calls, not only within one batch.
+    const earlier = (await quotes.findByRfqId(draft.rfq_id)).map((q) => q.draft);
+    const decided = await this.decide(draft, earlier);
+
+    const result = await quotes.insertIfAbsent(this.toQuote(decided));
+    if (result.created) {
+      // No transactions on a standalone Mongo: the quote is written first, so a
+      // crash here loses at most this audit line, never the quote itself.
+      const { quote } = result;
+      await audit.record({
+        actor: SYSTEM_ACTOR,
+        action: AuditAction.QuoteCreated,
+        quoteId: quote.draftId,
+        statusBefore: null,
+        statusAfter: quote.status,
+        changes: {
+          status: { before: null, after: quote.status },
+          approverId: { before: null, after: quote.routing.approver_id },
+          netTotal: { before: null, after: quote.netTotal },
+          duplicateOf: { before: null, after: quote.routing.duplicate_of },
+        },
+      });
+    }
+    return result;
+  }
+
+  /** The pure decision for one draft: no writes. */
+  private async decide(draft: DraftQuote, earlier: readonly DraftQuote[]): Promise<ProcessedDraft> {
     const { pricing, stock, checks, ruleEngine, approverResolver, duplicates, referenceData, clock } = this.deps;
     const now = clock.now();
 
@@ -115,6 +170,55 @@ export class QuoteProcessor {
       processed_at: now.toISOString(),
     };
   }
+
+  /**
+   * Build the stored quote. Every non-duplicate starts at pending_specialist:
+   * a specialist signs off on every quote, whatever the tier.
+   */
+  private toQuote(decided: ProcessedDraft): Quote {
+    const { draft, pricing } = decided;
+    const routing = toRoutingResult(decided);
+    return {
+      draftId: draft.draft_id,
+      rfqId: draft.rfq_id,
+      customerId: draft.customer_id,
+      preparedBy: draft.prepared_by,
+      receivedAt: draft.created_at,
+      status: decided.outcome === RoutingOutcome.Duplicate ? QuoteStatus.Duplicate : QuoteStatus.PendingSpecialist,
+      routing,
+      tier: decided.tier,
+      approverPath: decided.approver?.path ?? [],
+      lines: toQuoteLines(draft, pricing),
+      listTotal: pricing ? pricing.list_total.toFixed(2) : null,
+      netTotal: pricing ? pricing.net_total.toFixed(2) : null,
+      draft,
+      decisions: [],
+      policyVersion: this.deps.policyVersion,
+      version: 1,
+      createdAt: decided.processed_at,
+      updatedAt: decided.processed_at,
+    };
+  }
+}
+
+/** Merge draft lines with their pricing; money as 2-dp strings. */
+function toQuoteLines(draft: DraftQuote, pricing: QuotePricing | null): QuoteLine[] {
+  return draft.lines.map((l) => {
+    const priced = pricing?.lines.find((p) => p.line === l.line);
+    const isPriced = priced?.kind === "priced";
+    return {
+      line: l.line,
+      partNumber: l.part_number,
+      description: l.description,
+      quantity: l.quantity,
+      unit: l.unit,
+      extractionConfidence: l.extraction_confidence,
+      priceSource: isPriced ? priced.price_source : null,
+      listUnitPrice: isPriced ? priced.list_unit_price.toFixed(2) : null,
+      baseUnitPrice: isPriced ? priced.base_unit_price.toFixed(2) : null,
+      netTotal: isPriced ? priced.net_total.toFixed(2) : null,
+    };
+  });
 }
 
 /** Stable order (line ascending, quote-level last) and no repeated flags. */

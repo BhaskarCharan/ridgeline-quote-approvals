@@ -4,6 +4,8 @@
  * about HTTP and every failure has a consistent response shape.
  */
 export type DomainErrorCode =
+  | "unauthenticated"
+  | "not_implemented"
   | "validation_failed"
   | "not_found"
   | "forbidden"
@@ -33,6 +35,16 @@ export abstract class DomainError extends Error {
 /** Input did not match the expected shape (request body, draft file, CSV row). */
 export class ValidationError extends DomainError {
   readonly code = "validation_failed";
+}
+
+/** No caller identity, or one we do not recognise (X-User-Id missing or unknown). */
+export class UnauthenticatedError extends DomainError {
+  readonly code = "unauthenticated";
+}
+
+/** A deliberately stubbed capability. The message explains what the real one does. */
+export class NotImplementedError extends DomainError {
+  readonly code = "not_implemented";
 }
 
 /** A referenced quote, customer, product or approver does not exist. */

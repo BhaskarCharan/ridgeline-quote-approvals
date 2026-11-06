@@ -3,15 +3,23 @@ import { FixedClock } from "./adapters/clock/fixed-clock.js";
 import { SystemClock } from "./adapters/clock/system-clock.js";
 import { loadCsvReferenceData } from "./adapters/csv-reference-data.js";
 import { DEFAULT_STOCK_CLIENT_OPTIONS, HttpStockClient } from "./adapters/http-stock-client.js";
+import { MemoryAuditRepository } from "./adapters/memory/memory-audit-repository.js";
+import { MemoryQuoteRepository } from "./adapters/memory/memory-quote-repository.js";
+import { MongoAuditRepository } from "./adapters/mongo/mongo-audit-repository.js";
+import { connectMongo } from "./adapters/mongo/mongo-connection.js";
+import { MongoQuoteRepository } from "./adapters/mongo/mongo-quote-repository.js";
 import { loadApprovalPolicy } from "./config/approval-policy.js";
 import type { Env } from "./config/env.js";
 import type { ApprovalPolicy } from "./domain/policy.js";
 import type { Clock } from "./ports/clock.js";
 import type { ReferenceData } from "./ports/reference-data.port.js";
+import type { AuditRepository, QuoteRepository, ResettableStore } from "./ports/repositories.port.js";
 import type { StockProvider } from "./ports/stock.port.js";
+import { AuditService } from "./services/audit.service.js";
 import { DuplicateDetector } from "./services/duplicate-detector.js";
 import { PricingService } from "./services/pricing.service.js";
 import { QuoteProcessor } from "./services/quote-processor.js";
+import { QuoteReviewService } from "./services/review.service.js";
 import { createReviewChecks } from "./services/review-checks/index.js";
 import { ApproverResolver } from "./services/routing/approver-resolver.js";
 import { RuleEngine } from "./services/routing/rule-engine.js";
@@ -29,15 +37,27 @@ export interface Container {
   referenceData: ReferenceData;
   pricing: PricingService;
   stock: StockProvider;
+  quotes: QuoteRepository;
+  audit: AuditService;
   processor: QuoteProcessor;
-  /** Release external resources (Mongo connections, etc.). Idempotent. */
+  review: QuoteReviewService;
+  /** Wipe quotes and the audit log. Demo/test only; refused in production. */
+  resetStores(): Promise<void>;
+  /** Release external resources (Mongo connection). Idempotent. */
+  close(): Promise<void>;
+}
+
+/** Repositories plus their lifecycle hooks, whichever backend was chosen. */
+interface Stores {
+  quotes: QuoteRepository & ResettableStore;
+  audit: AuditRepository & ResettableStore;
   close(): Promise<void>;
 }
 
 /**
  * Wire the object graph by hand (constructor injection, no DI framework).
- * Async because the policy and the reference-data snapshot are loaded and
- * validated up front: bad config should stop startup, not surface mid-quote.
+ * Async because the policy, the reference-data snapshot and the database are
+ * loaded/connected up front: bad config should stop startup, not surface mid-quote.
  */
 export async function createContainer(env: Env): Promise<Container> {
   const logger = pino({ level: env.LOG_LEVEL });
@@ -54,8 +74,11 @@ export async function createContainer(env: Env): Promise<Container> {
     "Loaded reporting data snapshot",
   );
 
+  const stores = await createStores(env, logger);
+
   const timeZone = env.BUSINESS_TIMEZONE;
   const pricing = new PricingService(referenceData, clock, { timeZone });
+  const audit = new AuditService(stores.audit, clock);
 
   const stock = new HttpStockClient(
     {
@@ -78,8 +101,14 @@ export async function createContainer(env: Env): Promise<Container> {
     duplicates: new DuplicateDetector(policy.thresholds.duplicate_window_hours),
     referenceData,
     clock,
+    quotes: stores.quotes,
+    audit,
+    policyVersion: policy.version,
   });
 
+  const review = new QuoteReviewService(stores.quotes, audit, clock);
+
+  let closed = false;
   return {
     env,
     logger,
@@ -88,7 +117,36 @@ export async function createContainer(env: Env): Promise<Container> {
     referenceData,
     pricing,
     stock,
+    quotes: stores.quotes,
+    audit,
     processor,
-    close: async () => {},
+    review,
+    resetStores: async () => {
+      if (env.NODE_ENV === "production") {
+        throw new Error("Refusing to reset quote and audit stores in production");
+      }
+      await Promise.all([stores.quotes.reset(), stores.audit.reset()]);
+      logger.warn({ persistence: env.PERSISTENCE }, "Reset quotes and audit log (demo only)");
+    },
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      await stores.close();
+    },
   };
+}
+
+/** Pick the storage backend from PERSISTENCE. */
+async function createStores(env: Env, logger: Logger): Promise<Stores> {
+  if (env.PERSISTENCE === "memory") {
+    logger.warn("Using in-memory persistence: quotes and audit are lost on exit");
+    return { quotes: new MemoryQuoteRepository(), audit: new MemoryAuditRepository(), close: async () => {} };
+  }
+
+  const { client, db } = await connectMongo(env.MONGODB_URI, env.MONGODB_DB);
+  const quotes = new MongoQuoteRepository(db);
+  const audit = new MongoAuditRepository(db);
+  await Promise.all([quotes.ensureIndexes(), audit.ensureIndexes()]);
+  logger.info({ db: env.MONGODB_DB }, "Connected to MongoDB");
+  return { quotes, audit, close: () => client.close() };
 }

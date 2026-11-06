@@ -50,3 +50,16 @@ export const ROLES = Object.values(Role) as [Role, ...Role[]];
 
 /** Every QuoteStatus value, for zod enums and query validation. */
 export const QUOTE_STATUSES = Object.values(QuoteStatus) as [QuoteStatus, ...QuoteStatus[]];
+
+/**
+ * Every action the audit log can record. A closed set, so reports can count
+ * actions reliably and a typo cannot invent a new one.
+ */
+export const AuditAction = {
+  QuoteCreated: "quote_created",
+  SpecialistApproved: "specialist_approved",
+  ApproverApproved: "approver_approved",
+  Rejected: "rejected",
+  Edited: "edited",
+} as const;
+export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

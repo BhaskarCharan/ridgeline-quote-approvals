@@ -1,5 +1,5 @@
 import type { Decimal } from "decimal.js";
-import type { QuoteStatus, Role, RoutingOutcome } from "./enums.js";
+import type { AuditAction, QuoteStatus, Role, RoutingOutcome } from "./enums.js";
 
 // ---------------------------------------------------------------------------
 // Inputs: shapes of the read-only data we receive. Field names mirror the
@@ -156,29 +156,6 @@ export interface QuotePricing {
   specialist_review_flags: ReviewFlag[];
 }
 
-/** The persisted quote: the draft plus everything we derived from it. */
-export interface Quote {
-  draft_id: string;
-  rfq_id: string;
-  customer_id: string;
-  status: QuoteStatus;
-  routing_outcome: RoutingOutcome;
-  lines: LinePricing[];
-  net_total: Decimal;
-  list_total: Decimal;
-  /** Percent, e.g. 17.5 for 17.5%. Null when no line could be priced. */
-  effective_discount_pct: Decimal | null;
-  specialist_id: string;
-  /** Second approver after backups are applied; null when specialist-only. */
-  approver_id: string | null;
-  specialist_review_flags: ReviewFlag[];
-  duplicate_of: string | null;
-  /** Optimistic-concurrency version; guards against double approvals. */
-  version: number;
-  created_at: string;
-  updated_at: string;
-}
-
 /** One line of `outputs/routing_results.json` (Deliverable 1). Plain numbers. */
 export interface RoutingResult {
   draft_id: string;
@@ -190,14 +167,94 @@ export interface RoutingResult {
   duplicate_of: string | null;
 }
 
-/** Append-only audit record: who did what, when, and the state before/after. */
-export interface AuditEntry {
+// ---------------------------------------------------------------------------
+// Persisted state. camelCase: these are our own documents, not mirrors of an
+// upstream file. Money is stored as decimal strings so nothing round-trips
+// through a float.
+// ---------------------------------------------------------------------------
+
+/** A priced (or unpriced) line as stored on the quote, for reviewers. */
+export interface QuoteLine {
+  line: number;
+  partNumber: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  extractionConfidence: number;
+  /** Null when the part was not in the reporting data. */
+  priceSource: PriceSource | null;
+  listUnitPrice: string | null;
+  baseUnitPrice: string | null;
+  netTotal: string | null;
+}
+
+/**
+ * The persisted quote. `draftId` is its identity: one draft can only ever
+ * become one quote, which is what makes re-processing idempotent.
+ */
+export interface Quote {
+  draftId: string;
+  rfqId: string;
+  customerId: string;
+  preparedBy: string;
+  /** When the draft was received (draft.created_at); used for the duplicate window. */
+  receivedAt: string;
+  /** Workflow state: where the quote is now and who must act next. */
+  status: QuoteStatus;
+  /** The routing decision, exactly as written to routing_results.json. */
+  routing: RoutingResult;
+  /** Name of the policy tier that matched; null for duplicates. */
+  tier: string | null;
+  /** Approvers considered, e.g. ["U02", "U04"] when U02 was out of office. */
+  approverPath: string[];
+  lines: QuoteLine[];
+  listTotal: string | null;
+  netTotal: string | null;
+  /** The original draft, kept so an edit can re-price and re-route from source. */
+  draft: DraftQuote;
+  /** Every human sign-off or rejection so far, oldest first. */
+  decisions: ReviewDecision[];
+  /** Policy version that produced the routing, so old decisions stay explainable. */
+  policyVersion: string;
+  /** Optimistic-concurrency counter; every update must match it. Starts at 1. */
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Which of the two human steps a decision belongs to. */
+export type ReviewStep = "specialist" | "approver";
+
+/** One person's decision on a quote. Kept on the quote so the UI can show who signed off. */
+export interface ReviewDecision {
+  step: ReviewStep;
+  decision: "approved" | "rejected";
+  by: string;
   at: string;
-  actor_id: string;
-  action: string;
-  draft_id: string;
-  status_before: QuoteStatus | null;
-  status_after: QuoteStatus | null;
-  /** Field-level before/after for edits; free-form context otherwise. */
-  details: Record<string, unknown>;
+  /** Required for rejections; optional comment for approvals. */
+  reason: string | null;
+}
+
+/** Before/after of one field, for the audit trail (rule 12). */
+export interface FieldChange {
+  before: unknown;
+  after: unknown;
+}
+
+/** An audit record before the store assigns it an id. */
+export interface NewAuditEntry {
+  /** User id, or "system" for automated steps. */
+  actor: string;
+  action: AuditAction;
+  quoteId: string;
+  statusBefore: QuoteStatus | null;
+  statusAfter: QuoteStatus | null;
+  /** Field name -> before/after. Empty when only the status moved. */
+  changes: Record<string, FieldChange>;
+  at: string;
+}
+
+/** Append-only audit record: who did what, when, and the state before/after. */
+export interface AuditEntry extends NewAuditEntry {
+  id: string;
 }
