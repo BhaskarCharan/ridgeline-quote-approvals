@@ -59,6 +59,12 @@ describe.skipIf(client === null)("Mongo repositories (integration)", () => {
     expect(raw?._id).toBe("DQ-24106");
   });
 
+  it("reads quotes stored before `decisions` existed as having no decisions", async () => {
+    const { decisions: _omit, ...legacy } = sample;
+    await db.collection("quotes").insertOne({ _id: "DQ-LEGACY", ...legacy, draftId: "DQ-LEGACY" } as never);
+    expect((await quotes.findById("DQ-LEGACY"))?.decisions).toEqual([]);
+  });
+
   it("has a unique index on draftId", async () => {
     const indexes = await db.collection("quotes").indexes();
     expect(indexes.find((i) => i.name === "uniq_draftId")).toMatchObject({ key: { draftId: 1 }, unique: true });

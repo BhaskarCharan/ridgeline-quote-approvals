@@ -6,9 +6,13 @@ import type { DraftQuote } from "../domain/models.js";
  * service resubmitting after a timeout). Detecting it *before* pricing means
  * no second stock call and, crucially, no second approval request.
  *
- * "Same lines" compares part, quantity and unit as a multiset, ignoring line
- * numbers, order, descriptions and confidence scores, which can differ between
- * two extraction runs of the same RFQ.
+ * "Same lines" compares (part_number, quantity) pairs as a multiset, in any
+ * order, ignoring line numbers, units, descriptions and confidence scores,
+ * which can differ between two extraction runs of the same RFQ.
+ *
+ * The window is measured between the drafts' own `created_at` times (when the
+ * extraction service produced them), not the processing time, so a late batch
+ * run still recognises a resubmission.
  */
 export class DuplicateDetector {
   private readonly windowMs: number;
@@ -35,10 +39,10 @@ export class DuplicateDetector {
   }
 }
 
-/** Order-independent fingerprint of a draft's lines. */
+/** Order-independent fingerprint of a draft's lines: sorted part_number|quantity pairs. */
 function lineSignature(draft: DraftQuote): string {
   return draft.lines
-    .map((l) => `${l.part_number}|${l.quantity}|${l.unit}`)
+    .map((l) => `${l.part_number}|${l.quantity}`)
     .sort()
     .join(";");
 }

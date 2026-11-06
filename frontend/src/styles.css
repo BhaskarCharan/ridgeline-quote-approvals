@@ -1,1 +1,53 @@
-/* You can add global styles to this file, and also import other style files */
+/* Global theme tokens; component styles use these variables. */
+:root {
+  color-scheme: light dark;
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-alt: #f0f2f5;
+  --border: #d9dde3;
+  --text: #1c2430;
+  --muted: #5f6b7a;
+  --accent: #2563eb;
+  --highlight: #eef4ff;
+  --danger: #c2410c;
+  --danger-bg: #fff1eb;
+  --danger-text: #9a3412;
+  --ok: #15803d;
+  --ok-bg: #ecfdf3;
+  --ok-text: #166534;
+  --warn-bg: #fff7e0;
+  --warn-text: #8a5a00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161c;
+    --surface: #1a2029;
+    --surface-alt: #222a35;
+    --border: #2f3946;
+    --text: #e6eaf0;
+    --muted: #9aa6b5;
+    --accent: #3b82f6;
+    --highlight: #1c2a40;
+    --danger: #ea580c;
+    --danger-bg: #2d1a12;
+    --danger-text: #fdba8c;
+    --ok: #22c55e;
+    --ok-bg: #12261a;
+    --ok-text: #86efac;
+    --warn-bg: #2b2414;
+    --warn-text: #fcd34d;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.4;
+}

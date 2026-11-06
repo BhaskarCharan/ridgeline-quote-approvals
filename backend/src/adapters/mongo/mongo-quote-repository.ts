@@ -86,6 +86,11 @@ export class MongoQuoteRepository implements QuoteRepository, ResettableStore {
   }
 }
 
+/**
+ * Map a stored document to a Quote, upgrading older documents on read:
+ * quotes stored before `decisions` existed get an empty list, so they can
+ * still be approved without a data migration.
+ */
 function toQuote({ _id, ...quote }: QuoteDocument): Quote {
-  return quote;
+  return { ...quote, decisions: quote.decisions ?? [] };
 }
